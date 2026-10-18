@@ -1,0 +1,25 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.venv-mac/
+venv/
+env/
+
+# ---- 构建产物 ----
+build/
+build-win/
+dist/
+dist-win/
+macos/build/
+*.dmg
+*.app/
+
+# ---- 编辑器 / 系统 ----
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+*.log
