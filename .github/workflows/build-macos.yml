@@ -1,0 +1,85 @@
+name: build-macos
+
+# 在 GitHub 的 macOS 机器上云端构建 .app / .dmg（无需自有 Mac）
+# 触发方式：推送到 main / 打 tag / 手动 Run workflow
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "portfolio_builder.py"
+      - "macos/**"
+      - ".github/workflows/build-macos.yml"
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-macos-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: macOS ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Apple Silicon（M 系列）—— macos-15 即 arm64 标准镜像
+          - runner: macos-15
+            arch: arm64
+          # Intel —— 标准 Intel 镜像使用 -intel 后缀
+          - runner: macos-15-intel
+            arch: x86_64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 环境信息
+        run: |
+          sw_vers
+          uname -m
+          python -V
+
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "PyQt5>=5.15.9" "pyinstaller>=6.0"
+
+      - name: 生成图标 (AppIcon.icns)
+        run: python macos/make_icon.py
+
+      - name: 打包 .app
+        run: python -m PyInstaller --noconfirm --clean macos/PortfolioBuilder.spec
+
+      - name: 制作 DMG
+        run: |
+          mkdir -p dist/stage
+          cp -R "dist/Portfolio Builder.app" dist/stage/
+          ln -s /Applications dist/stage/Applications
+          hdiutil create -volname "Portfolio Builder" -srcfolder dist/stage \
+            -ov -format UDZO "dist/PortfolioBuilder-macos-${{ matrix.arch }}.dmg"
+
+      - name: 校验产物
+        run: |
+          ls -lh dist
+          echo "---- Info.plist ----"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "dist/Portfolio Builder.app/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "dist/Portfolio Builder.app/Contents/Info.plist"
+          echo "---- 可执行文件架构 ----"
+          file "dist/Portfolio Builder.app/Contents/MacOS/PortfolioBuilder"
+          echo "---- 签名状态（CI 为 ad-hoc 签名）----"
+          codesign -dv "dist/Portfolio Builder.app" 2>&1 | head -5 || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PortfolioBuilder-macos-${{ matrix.arch }}
+          path: dist/*.dmg
+          if-no-files-found: error
+          retention-days: 30
