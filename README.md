@@ -11,7 +11,8 @@
 | 内容编辑 | 封面标题 / 文案 / 单选封面图（带预览）；二级详情文案 / 多选详情图（可拖拽排序） |
 | 口令加密 | 查看口令必填，SHA-256 校验 + XOR 链式密钥流加密，Python 端与前端 JS 完全对齐（纯 JS SHA-256，`file://` 可用） |
 | 页面权限 | 全局设置三档：`不允许复制 + 截图高斯模糊` / `不允许复制（截图不模糊）` / `允许复制（关闭截屏防护）` |
-| 异形比例 | 封面流与详情页自动识别长图 / 超宽图（比例偏差 > 1.14 即 contain 完整显示 + 模糊压暗底板），长图不再被裁切；详情页点击可看完整大图 |
+| 异形比例 | 一级全宽横幅按原图比例铺满（极端比例限高并以模糊底板完整显示）；二级每张图按原图比例展开，长图也不裁切 |
+| 版面布局 | 一级封面流：全宽铺满横幅（类似 kinhom），标题/文案压在图上；二级详情：全部图片固定宽度（≤1080px）居中，不裁剪、不缩放变形 |
 | 防盗图 | 全程 Canvas 绘制，无 `<img>` 标签；禁用右键 / 拖拽 / 选中 / 长按 + 透明保护罩 |
 | 防截屏 | 严格模式下 PrintScreen、Win+Shift+S、Cmd+Shift+3/4/5、F12、Ctrl/Cmd+Shift+I、Ctrl/Cmd+S/P 触发即 0ms 模糊清屏，点击恢复按钮才解除 |
 | 锁定层 | 未解锁前 DOM 不渲染任何项目结构与图片，仅显示毛玻璃口令层 |
@@ -34,7 +35,7 @@ python3.12 -m venv .venv
 | 目标平台 | 命令 | 产物 |
 |---|---|---|
 | macOS（本机） | `bash macos/build_macos.sh` | `dist/Portfolio Builder.app` + `PortfolioBuilder-macos-<arch>.dmg` |
-| macOS（云端，无需 Mac） | 仓库 Actions → **build-macos** → Run workflow | 双架构 `.dmg`（arm64 / x86_64） |
+| macOS（云端，无需 Mac） | 仓库 Actions → **build-macos** → Run workflow | `.dmg`（x86_64，Apple Silicon 经 Rosetta 2 运行） |
 | Windows | `build_windows.bat` | `dist\PortfolioBuilder\PortfolioBuilder.exe` |
 
 macOS 打包细节（签名、公证、Gatekeeper 处理）见 [macos/README_macOS.md](macos/README_macOS.md)。

@@ -1644,25 +1644,22 @@ body.drawer-open .drawer-item{opacity:1;transform:none;transition:opacity .7s va
 .hero > *:nth-child(5){animation-delay:.4s;}
 @keyframes heroUp{from{opacity:0;transform:translateY(34px);}to{opacity:1;transform:none;}}
 
-.works{display:flex;flex-direction:column;}
+.works{display:block;}
 .work{
-  display:grid;grid-template-columns:1.12fr .88fr;gap:clamp(26px,4vw,72px);
-  align-items:center;min-height:92vh;padding:clamp(46px,7vh,110px) var(--pad);
-  border-top:1px solid var(--line-soft);
+  position:relative;display:block;width:100%;
+  min-height:0;padding:0;border-top:1px solid var(--line-soft);
 }
-.work:nth-child(even){grid-template-columns:.88fr 1.12fr;}
-.work:nth-child(even) .work-media{order:2;}
-.work:nth-child(even) .work-info{order:1;}
+.work:first-child{border-top:none;}
 .work-media{
-  position:relative;overflow:hidden;border-radius:3px;background:#111113;
-  box-shadow:0 40px 90px rgba(0,0,0,.5);
+  position:relative;width:100%;overflow:hidden;background:#0d0d0f;
+  border-radius:0;box-shadow:none;
 }
-.parallax{will-change:transform;transform-origin:center;}
-.media-inner{position:relative;width:100%;aspect-ratio:4/3;overflow:hidden;}
-.media-inner.ratio-wide{aspect-ratio:16/9;}
-.media-canvas{position:absolute;inset:0;width:100%;height:100%;display:block;opacity:0;transition:opacity .9s var(--ease),transform 1.1s var(--ease);transform:scale(1.02);}
-.media-canvas.ready{opacity:1;transform:scale(1);}
-.work-media:hover .media-canvas.ready{transform:scale(1.045);}
+.parallax{will-change:auto;}
+/* 一级：全铺满横幅 —— 宽度 100%，高度严格按原图比例；极端比例限高后由 Canvas contain 完整显示 */
+.work .media-inner{width:100%;aspect-ratio:16/9;max-height:100vh;}
+.media-inner{position:relative;width:100%;aspect-ratio:16/9;overflow:hidden;}
+.media-canvas{position:absolute;inset:0;width:100%;height:100%;display:block;opacity:0;transition:opacity .9s var(--ease);}
+.media-canvas.ready{opacity:1;}
 .media-shield{
   position:absolute;inset:0;z-index:3;background:transparent;
   display:flex;align-items:flex-end;justify-content:flex-start;gap:8px;
@@ -1685,16 +1682,22 @@ body.drawer-open .drawer-item{opacity:1;transform:none;transition:opacity .7s va
 }
 .media-badge-arrow{padding:9px 13px;}
 .work-media:hover .media-badge,.work-media:hover .media-badge-arrow{opacity:1;transform:none;}
-.work-info{padding-top:6px;}
+.work-info{
+  position:absolute;left:0;right:0;bottom:0;z-index:5;
+  padding:clamp(30px,5vw,84px) var(--pad) clamp(28px,4.5vw,64px);
+  background:linear-gradient(to top,rgba(5,5,7,.88) 0%,rgba(5,5,7,.46) 40%,rgba(5,5,7,0) 100%);
+  pointer-events:none;
+}
 .work-index{font-size:11px;letter-spacing:.42em;color:var(--accent);}
 .work-title{
-  margin:16px 0 0;font-size:clamp(28px,3.6vw,54px);line-height:1.04;font-weight:600;letter-spacing:-.01em;
+  margin:14px 0 0;font-size:clamp(30px,4.6vw,72px);line-height:1.02;font-weight:600;letter-spacing:-.015em;
 }
-.work-meta{margin-top:14px;color:var(--dim);font-size:11.5px;letter-spacing:.3em;text-transform:uppercase;}
-.work-intro{margin:22px 0 0;max-width:52ch;color:var(--muted);font-size:15px;line-height:1.9;}
+.work-meta{margin-top:12px;color:#b9b9c2;font-size:11.5px;letter-spacing:.3em;text-transform:uppercase;}
+.work-intro{margin:18px 0 0;max-width:56ch;color:#d2d2d8;font-size:15px;line-height:1.85;}
 .work-cta{
-  margin-top:30px;display:inline-flex;align-items:center;gap:14px;
+  margin-top:24px;display:inline-flex;align-items:center;gap:14px;
   font-size:12px;letter-spacing:.3em;text-transform:uppercase;color:var(--fg);
+  pointer-events:auto;
 }
 .work-cta i{display:block;width:44px;height:1px;background:var(--line);position:relative;transition:width .5s var(--ease),background .5s var(--ease);}
 .work-cta:hover i{width:76px;background:var(--accent);}
@@ -1731,17 +1734,15 @@ body.drawer-open .drawer-item{opacity:1;transform:none;transition:opacity .7s va
 .detail-intro{margin:30px 0 0;max-width:74ch;color:#c9c9d0;font-size:16px;line-height:2;white-space:pre-wrap;}
 .detail-intro:empty{display:none;}
 .detail-gallery{
-  display:flex;flex-direction:column;gap:clamp(30px,7vh,96px);
+  display:flex;flex-direction:column;align-items:center;gap:clamp(30px,6vh,80px);
   padding:clamp(50px,8vh,120px) var(--pad);
 }
-.detail-item{display:flex;flex-direction:column;gap:14px;opacity:0;transform:translateY(34px);transition:opacity 1.1s var(--ease),transform 1.1s var(--ease);}
+.detail-item{width:min(1080px,100%);display:flex;flex-direction:column;gap:14px;opacity:0;transform:translateY(34px);transition:opacity 1.1s var(--ease),transform 1.1s var(--ease);}
 .detail-item.in{opacity:1;transform:none;}
-.detail-item.w-large{width:100%;}
-.detail-item.w-mid{width:78%;align-self:flex-end;}
-.detail-item.w-small{width:58%;align-self:flex-start;}
+/* 二级：每张图固定宽度、按原图比例显示，绝不裁剪 */
+.detail-item.w-large,.detail-item.w-mid,.detail-item.w-small{width:min(1080px,100%);align-self:center;}
 .detail-media{position:relative;overflow:hidden;border-radius:3px;background:#111113;box-shadow:0 30px 80px rgba(0,0,0,.45);}
-.detail-media .media-inner{aspect-ratio:3/2;}
-.detail-media:hover .media-canvas.ready{transform:scale(1.03);}
+.detail-media .media-inner{aspect-ratio:16/9;}
 .detail-cap{
   display:flex;align-items:center;gap:12px;
   color:var(--dim);font-size:11px;letter-spacing:.3em;text-transform:uppercase;
@@ -1805,9 +1806,10 @@ body.shielded .shield-card button{cursor:pointer;}
 
 /* ===================== 响应式 ===================== */
 @media (max-width:900px){
-  .work{grid-template-columns:1fr !important;min-height:auto;gap:26px;}
-  .work:nth-child(even) .work-media{order:1;}
-  .work:nth-child(even) .work-info{order:2;}
+  .work .media-inner{max-height:none;}
+  .work-info{padding:26px var(--pad) 30px;}
+  .work-title{font-size:clamp(26px,8vw,46px);}
+  .work-intro{display:none;}
   .detail-item.w-mid,.detail-item.w-small{width:100%;}
   .detail-title{font-size:clamp(28px,9vw,52px);}
   .hero{min-height:92vh;}
@@ -2238,18 +2240,11 @@ _HTML_JS = r"""
       var canvas = document.createElement('canvas');
       canvas.className = 'media-canvas';
       canvas.setAttribute('data-mode', 'auto');
+      canvas.setAttribute('data-auto-ratio', 'work');
       canvas.__src = project.cover || null;
 
       var shield = document.createElement('div');
       shield.className = 'media-shield';
-      var badge = document.createElement('span');
-      badge.className = 'media-badge';
-      badge.textContent = 'View Project';
-      var badgeArrow = document.createElement('span');
-      badgeArrow.className = 'media-badge-arrow';
-      badgeArrow.textContent = '→';
-      shield.appendChild(badge);
-      shield.appendChild(badgeArrow);
 
       inner.appendChild(canvas);
       inner.appendChild(shield);
@@ -2292,8 +2287,8 @@ _HTML_JS = r"""
       cta.appendChild(ctaLine);
       info.appendChild(cta);
 
+      media.appendChild(info);
       article.appendChild(media);
-      article.appendChild(info);
       els.worksList.appendChild(article);
 
       var open = function (event) {
@@ -2391,12 +2386,17 @@ _HTML_JS = r"""
     img.onload = function () {
       canvas.__img = img;
       canvas.setAttribute('data-state', 'loaded');
-      if (canvas.getAttribute('data-auto-ratio') === '1') {
+      var autoRatio = canvas.getAttribute('data-auto-ratio');
+      if (autoRatio === '1' || autoRatio === 'work') {
         var ratio = img.naturalWidth / Math.max(1, img.naturalHeight);
-        /* 长图不再被 0.62 截断：允许到 1:3.3，超出部分交给 contain 完整显示 */
-        ratio = Math.max(0.30, Math.min(3.2, ratio));
         var inner = canvas.parentNode;
-        if (inner) { inner.style.aspectRatio = ratio.toFixed(4); }
+        if (autoRatio === 'work') {
+          /* 一级全铺满：高度跟原图比例；极端比例限制在 0.55–2.6，超出交给 contain 完整显示 */
+          if (inner) { inner.style.aspectRatio = Math.max(0.55, Math.min(2.6, ratio)).toFixed(4); }
+        } else if (inner) {
+          /* 二级固定宽度：严格按原图比例，绝不裁剪（长图就让页面变长） */
+          inner.style.aspectRatio = ratio.toFixed(4);
+        }
       }
       drawCanvas(canvas);
       canvas.classList.add('ready');
@@ -2511,21 +2511,11 @@ _HTML_JS = r"""
      5. 视差 / 滚动进度 / 自定义光标
      ========================================================= */
   function collectParallax() {
+    /* 为保证「不裁剪」，全面停用视差缩放（缩放必然吃掉画面边缘） */
     parallaxItems = [];
     var nodes = document.querySelectorAll('.parallax');
     for (var i = 0; i < nodes.length; i++) {
-      var node = nodes[i];
-      if (!node.isConnected) { continue; }
-      /* contain 模式（长图 / 异形图）禁用视差缩放，避免裁掉完整图像边缘 */
-      if (node.parentNode && node.parentNode.classList.contains('is-contain')) {
-        node.style.transform = '';
-        continue;
-      }
-      parallaxItems.push({
-        el: node,
-        host: node.parentNode,
-        amount: parseFloat(node.getAttribute('data-amount') || '0.05')
-      });
+      nodes[i].style.transform = '';
     }
   }
 
@@ -2653,7 +2643,7 @@ _HTML_JS = r"""
 
     images.forEach(function (image, i) {
       var item = document.createElement('div');
-      item.className = 'detail-item ' + (i % 3 === 0 ? 'w-large' : (i % 3 === 1 ? 'w-mid' : 'w-small'));
+      item.className = 'detail-item';
 
       var media = document.createElement('div');
       media.className = 'detail-media';
@@ -2667,7 +2657,7 @@ _HTML_JS = r"""
 
       var canvas = document.createElement('canvas');
       canvas.className = 'media-canvas';
-      canvas.setAttribute('data-mode', 'auto');
+      canvas.setAttribute('data-mode', 'cover');
       canvas.setAttribute('data-auto-ratio', '1');
       canvas.__src = image;
 

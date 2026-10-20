@@ -28,7 +28,7 @@ macos/
 ├── make_icon.py            # 用 PyQt5 代码绘制图标并合成 AppIcon.icns（无需素材）
 ├── entitlements.plist      # 公证时 PyInstaller 引导程序常用豁免项
 └── README_macOS.md         # 本文件
-../.github/workflows/build-macos.yml   # GitHub Actions 自动构建（arm64 + x86_64 双架构）
+../.github/workflows/build-macos.yml   # GitHub Actions 自动构建（x86_64）
 ```
 
 ## 2. 路线 A：本机 Mac 一键构建
@@ -73,8 +73,7 @@ open "dist/Portfolio Builder.app"                       # 直接运行
 1. 把项目推到 GitHub（`.github/workflows/build-macos.yml` 已在仓库里）
 2. 仓库页面 → **Actions** → 左侧 `build-macos` → **Run workflow**
 3. 等待约 3–6 分钟，在 job 的 **Artifacts** 里下载：
-   - `PortfolioBuilder-macos-arm64` → Apple Silicon（M 系列）
-   - `PortfolioBuilder-macos-x86_64` → Intel Mac
+   - `PortfolioBuilder-macos-x86_64` → Intel Mac（Apple Silicon 经 Rosetta 2 运行）
 
 工作流会自动：装依赖 → 生成图标 → PyInstaller 打包 → 合成 DMG → 打印 `CFBundleDisplayName` 与 `file` 架构信息便于核对。
 
@@ -89,10 +88,10 @@ PyQt5-5.15.11-cp38-abi3-macosx_11_0_x86_64.whl    ← Intel，要求 macOS 11+
 
 所以：
 
-- **在 Apple Silicon 上构建 → 得到 arm64 应用**；在 Intel Mac 上构建 → 得到 x86_64 应用
+- **在 Intel Mac 上构建 → 得到 x86_64 应用**；当前 CI 只构建 x86_64（用户确认够用）
 - 想做「一个包通吃」的 universal2，需要 universal2 版 Python（python.org 官方安装包）+ 通用版 Qt，
-  目前 PyQt5 的 PyPI 轮子不满足条件，建议直接出两个 DMG（CI 矩阵已默认这么做）
-- Intel 应用在 Apple Silicon 上可通过 Rosetta 2 运行；反之 arm64 应用无法在 Intel 上运行
+  目前 PyQt5 的 PyPI 轮子不满足条件
+- x86_64 应用在 Apple Silicon 上可通过 Rosetta 2 运行；arm64 应用无法在 Intel 上运行
 - 想进一步放宽系统版本：`PYI_MIN_MACOS=10.15`（仅对 Intel 有效，arm64 受轮子限制最低 macOS 11）
 
 ## 5. 签名与公证（要分发给别人时必做）

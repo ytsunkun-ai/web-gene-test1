@@ -28,10 +28,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Apple Silicon（M 系列）—— macos-15 即 arm64 标准镜像
-          - runner: macos-15
-            arch: arm64
-          # Intel —— 标准 Intel 镜像使用 -intel 后缀
+          # 仅构建 x86_64：Apple Silicon 通过 Rosetta 2 运行（用户确认够用）
           - runner: macos-15-intel
             arch: x86_64
     steps:
