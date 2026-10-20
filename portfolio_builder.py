@@ -35,6 +35,7 @@ try:
     from PyQt5.QtWidgets import (
         QAbstractItemView,
         QApplication,
+        QComboBox,
         QFileDialog,
         QFormLayout,
         QFrame,
@@ -63,7 +64,7 @@ except ImportError:  # pragma: no cover
 
 
 APP_NAME = "Portfolio Builder · 作品集网页生成器"
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.1.0"
 
 SUPPORTED_IMAGE_EXT = (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif")
 MIME_MAP = {
@@ -146,6 +147,22 @@ def read_image_payload(path: str) -> dict:
     ext = os.path.splitext(path)[1].lower()
     mime = MIME_MAP.get(ext, "image/jpeg")
     return {"mime": mime, "data": base64.b64encode(raw).decode("ascii")}
+
+
+def describe_aspect_ratio(width: int, height: int) -> str:
+    """返回图片比例的中文描述，便于一眼识别长图 / 异形图。"""
+    if width <= 0 or height <= 0:
+        return "比例未知"
+    ratio = width / float(height)
+    if ratio >= 2.6:
+        return "超宽横幅 %.1f:1" % ratio
+    if ratio >= 1.15:
+        return "横图 %.2f:1" % ratio
+    if ratio >= 0.87:
+        return "方图 ≈1:1"
+    if ratio >= 0.45:
+        return "竖图 1:%.2f" % (1.0 / ratio)
+    return "长图 1:%.1f" % (1.0 / ratio)
 
 
 def fill_template(template: str, mapping: dict) -> str:
@@ -301,7 +318,7 @@ class ProjectEditor(QWidget):
         picker = QHBoxLayout()
         picker.setSpacing(14)
 
-        self.cover_preview = QLabel("未选择封面图\n\n（建议 3:2 横图，≥ 1600px 宽）")
+        self.cover_preview = QLabel("未选择封面图\n\n（任意比例均可，长图会完整显示）")
         self.cover_preview.setObjectName("coverPreview")
         self.cover_preview.setFixedSize(self.PREVIEW_W, self.PREVIEW_H)
         self.cover_preview.setAlignment(Qt.AlignCenter)
@@ -442,7 +459,7 @@ class ProjectEditor(QWidget):
         path = (self.project or {}).get("cover_image", "")
         if not path:
             self.cover_preview.setPixmap(QPixmap())
-            self.cover_preview.setText("未选择封面图\n\n（建议 3:2 横图，≥ 1600px 宽）")
+            self.cover_preview.setText("未选择封面图\n\n（任意比例均可，长图会完整显示）")
             self.cover_path.setText("尚未选择封面图")
             self.cover_path.setToolTip("")
             return
@@ -452,20 +469,25 @@ class ProjectEditor(QWidget):
             self.cover_path.setText("无法读取：%s" % path)
             self.cover_path.setToolTip(path)
             return
+        # 完整显示（contain）：异形比例 / 长图不裁切，居中留边
         scaled = pixmap.scaled(
-            self.cover_preview.width(),
-            self.cover_preview.height(),
-            Qt.KeepAspectRatioByExpanding,
+            max(1, self.cover_preview.width() - 2),
+            max(1, self.cover_preview.height() - 2),
+            Qt.KeepAspectRatio,
             Qt.SmoothTransformation,
         )
-        x = max(0, (scaled.width() - self.cover_preview.width()) // 2)
-        y = max(0, (scaled.height() - self.cover_preview.height()) // 2)
-        cropped = scaled.copy(x, y, self.cover_preview.width(), self.cover_preview.height())
         self.cover_preview.setText("")
-        self.cover_preview.setPixmap(cropped)
+        self.cover_preview.setPixmap(scaled)
         size_kb = os.path.getsize(path) / 1024.0 if os.path.isfile(path) else 0
         self.cover_path.setText(
-            "%s\n%d × %d px · %.0f KB" % (os.path.basename(path), pixmap.width(), pixmap.height(), size_kb)
+            "%s\n%d × %d px · %s · %.0f KB"
+            % (
+                os.path.basename(path),
+                pixmap.width(),
+                pixmap.height(),
+                describe_aspect_ratio(pixmap.width(), pixmap.height()),
+                size_kb,
+            )
         )
         self.cover_path.setToolTip(path)
 
@@ -501,7 +523,7 @@ class ProjectEditor(QWidget):
         if not pixmap.isNull():
             item.setIcon(
                 QIcon(
-                    pixmap.scaled(104, 68, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+                    pixmap.scaled(104, 68, Qt.KeepAspectRatio, Qt.SmoothTransformation)
                 )
             )
         item.setText(self._image_label(index, path))
@@ -635,6 +657,20 @@ class PortfolioBuilder(QMainWindow):
         self.btn_pwd_eye.setFixedWidth(64)
         self.btn_pwd_eye.toggled.connect(self._toggle_password)
 
+        self.mode_combo = QComboBox()
+        self.mode_combo.addItem("不允许复制 · 截图高斯模糊（最严格）", "strict")
+        self.mode_combo.addItem("不允许复制 · 截图不模糊", "nocopy")
+        self.mode_combo.addItem("允许复制 · 关闭截屏防护", "allow")
+        self.mode_combo.setMinimumWidth(260)
+        self.mode_combo.setToolTip(
+            "严格：禁止选中 / 复制 / 右键；切屏、截图快捷键、F12 触发即高斯模糊 + 清空画面，需点击恢复。\n"
+            "标准：禁止选中 / 复制 / 右键，但不做截屏模糊。\n"
+            "自由：允许选中与复制文本，关闭截屏模糊和按键拦截（图片仍只以 Canvas 绘制，不产生 <img>）。"
+        )
+
+        self.mode_hint = QLabel("")
+        self.mode_hint.setObjectName("hintLabel")
+
         grid.addWidget(QLabel("作品集主标题"), 0, 0)
         grid.addWidget(self.title_edit, 0, 1, 1, 3)
         grid.addWidget(QLabel("副标题（可选）"), 1, 0)
@@ -642,6 +678,9 @@ class PortfolioBuilder(QMainWindow):
         grid.addWidget(QLabel("查看口令"), 2, 0)
         grid.addWidget(self.pwd_edit, 2, 1, 1, 2)
         grid.addWidget(self.btn_pwd_eye, 2, 3)
+        grid.addWidget(QLabel("页面权限"), 3, 0)
+        grid.addWidget(self.mode_combo, 3, 1, 1, 2)
+        grid.addWidget(self.mode_hint, 4, 1, 1, 3)
         grid.setColumnStretch(1, 1)
         grid.setColumnStretch(2, 1)
         outer.addLayout(grid, 1)
@@ -672,6 +711,8 @@ class PortfolioBuilder(QMainWindow):
         self.btn_open.clicked.connect(self.load_project_file)
         self.btn_new.clicked.connect(self.reset_all)
         self.pwd_edit.textChanged.connect(self._update_pwd_hint)
+        self.mode_combo.currentIndexChanged.connect(self._on_mode_changed)
+        self._update_mode_hint()
         self.title_edit.textChanged.connect(lambda _t: self._touch())
         self.subtitle_edit.textChanged.connect(lambda _t: self._touch())
         return group
@@ -891,6 +932,7 @@ class PortfolioBuilder(QMainWindow):
             "title": self.title_edit.text(),
             "subtitle": self.subtitle_edit.text(),
             "password": self.pwd_edit.text(),
+            "page_mode": self.mode_combo.currentData(),
             "projects": self.projects,
         }
         try:
@@ -935,6 +977,8 @@ class PortfolioBuilder(QMainWindow):
         self.title_edit.setText(data.get("title", "") or "PORTFOLIO · 作品集")
         self.subtitle_edit.setText(data.get("subtitle", ""))
         self.pwd_edit.setText(data.get("password", ""))
+        mode_index = self.mode_combo.findData(data.get("page_mode") or "strict")
+        self.mode_combo.setCurrentIndex(mode_index if mode_index >= 0 else 0)
         self.current_index = 0
         self._sync_project_list()
         self._update_status("工程已载入：%s" % path)
@@ -947,6 +991,7 @@ class PortfolioBuilder(QMainWindow):
         self.title_edit.setText("PORTFOLIO · 作品集")
         self.subtitle_edit.setText("Selected Works · 精选作品集")
         self.pwd_edit.clear()
+        self.mode_combo.setCurrentIndex(0)
         self._sync_project_list()
 
     # ------------------------------------------------------------- 生成逻辑
@@ -1132,10 +1177,12 @@ class PortfolioBuilder(QMainWindow):
         title = payload["title"]
         subtitle = payload["subtitle"] or "Selected Works"
         year = payload["year"]
+        mode = self.mode_combo.currentData() or "strict"
         vault = (
             "{\n"
             "    title: %s,\n" % js_literal(title)
             + "    hash: %s,\n" % js_literal(password_hash_hex(password))
+            + "    mode: %s,\n" % js_literal(mode)
             + "    payload: %s,\n" % js_literal(cipher)
             + "    count: %d,\n" % len(payload["projects"])
             + "    generated: %s\n" % js_literal(payload["generated"])
@@ -1169,6 +1216,19 @@ class PortfolioBuilder(QMainWindow):
             level = "较强"
         self.pwd_hint.setText("口令长度 %d 位 · %s · 建议 ≥ 6 位混合字符" % (length, level))
 
+    def _on_mode_changed(self, _index: int) -> None:
+        self._update_mode_hint()
+        self._touch()
+
+    def _update_mode_hint(self) -> None:
+        mode = self.mode_combo.currentData()
+        hints = {
+            "strict": "禁止选中 / 复制 / 右键；切屏或截图快捷键触发高斯模糊，需点击「恢复浏览」。",
+            "nocopy": "禁止选中 / 复制 / 右键；截图不做模糊，适合内部预览或投屏。",
+            "allow": "允许选中与复制文本；关闭模糊与按键拦截，图片仍只以 Canvas 绘制。",
+        }
+        self.mode_hint.setText(hints.get(mode, ""))
+
     def _touch(self) -> None:
         self._update_status("设置已更新。")
 
@@ -1200,7 +1260,7 @@ QGroupBox::title {
     subcontrol-position: top left;
     left: 14px;
     padding: 0 8px;
-    color: #d8b26a;
+    color: #ffffff;
     letter-spacing: 1px;
 }
 QLabel { background: transparent; }
@@ -1226,12 +1286,31 @@ QLineEdit, QTextEdit, QSpinBox, QListWidget {
     border-radius: 8px;
     padding: 7px 9px;
     color: #eaeaf0;
-    selection-background-color: #d8b26a;
+    selection-background-color: #ffffff;
     selection-color: #14161a;
 }
-QLineEdit:focus, QTextEdit:focus, QSpinBox:focus, QListWidget:focus { border: 1px solid #d8b26a; }
+QLineEdit:focus, QTextEdit:focus, QSpinBox:focus, QListWidget:focus { border: 1px solid #ffffff; }
 QLineEdit:disabled, QTextEdit:disabled, QListWidget:disabled { color: #5b6069; }
 QSpinBox::up-button, QSpinBox::down-button { width: 16px; background: #1a1d22; border: none; }
+QComboBox {
+    background: #0a0b0d;
+    border: 1px solid #2a2f38;
+    border-radius: 8px;
+    padding: 7px 9px;
+    color: #eaeaf0;
+    min-height: 18px;
+}
+QComboBox:hover, QComboBox:focus, QComboBox:on { border-color: #ffffff; }
+QComboBox::drop-down { width: 26px; border: none; background: transparent; }
+QComboBox QAbstractItemView {
+    background: #14161a;
+    border: 1px solid #2f343d;
+    color: #e9e9ec;
+    selection-background-color: #2a2f38;
+    selection-color: #ffffff;
+    outline: none;
+    padding: 4px;
+}
 QPushButton {
     background: #1b1e24;
     border: 1px solid #31363f;
@@ -1239,20 +1318,20 @@ QPushButton {
     padding: 8px 14px;
     color: #e6e7ec;
 }
-QPushButton:hover { background: #23272f; border-color: #d8b26a; color: #ffffff; }
+QPushButton:hover { background: #23272f; border-color: #ffffff; color: #ffffff; }
 QPushButton:pressed { background: #15181c; }
 QPushButton:disabled { color: #5b6069; border-color: #24272d; }
 QPushButton#primary {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #e8c47e, stop:1 #c39a4f);
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #ffffff, stop:1 #c9c9c9);
     color: #17181b;
     font-size: 14px;
     font-weight: 700;
     letter-spacing: 1px;
     border: none;
 }
-QPushButton#primary:hover { background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #f3d494, stop:1 #d3aa60); }
-QPushButton#primaryGhost { border-color: #4a4232; color: #e2c68d; }
-QPushButton#primaryGhost:hover { background: #221d14; border-color: #d8b26a; }
+QPushButton#primary:hover { background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #ffffff, stop:1 #dedede); }
+QPushButton#primaryGhost { border-color: #3a3e45; color: #e9e9e9; }
+QPushButton#primaryGhost:hover { background: #1a1d22; border-color: #ffffff; }
 QListWidget#projectList::item {
     padding: 8px 10px;
     border-radius: 8px;
@@ -1262,7 +1341,7 @@ QListWidget#projectList::item {
 QListWidget#projectList::item:hover { background: #191c21; }
 QListWidget#projectList::item:selected {
     background: #23262d;
-    border: 1px solid #d8b26a;
+    border: 1px solid #ffffff;
     color: #ffffff;
 }
 QListWidget#imageList::item {
@@ -1271,7 +1350,7 @@ QListWidget#imageList::item {
     border: 1px solid #1e2229;
     margin-bottom: 3px;
 }
-QListWidget#imageList::item:selected { background: #23262d; border: 1px solid #d8b26a; color: #ffffff; }
+QListWidget#imageList::item:selected { background: #23262d; border: 1px solid #ffffff; color: #ffffff; }
 QSplitter::handle { background: transparent; }
 QScrollBar:vertical { background: #0b0c0e; width: 10px; margin: 2px; }
 QScrollBar::handle:vertical { background: #2c313a; border-radius: 5px; min-height: 30px; }
@@ -1281,7 +1360,7 @@ QScrollBar:horizontal { background: #0b0c0e; height: 10px; margin: 2px; }
 QScrollBar::handle:horizontal { background: #2c313a; border-radius: 5px; min-width: 30px; }
 QProgressDialog { background: #14161a; }
 QProgressBar { background: #0a0b0d; border: 1px solid #2a2f38; border-radius: 6px; text-align: center; color: #e9e9ec; }
-QProgressBar::chunk { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #e8c47e, stop:1 #c39a4f); border-radius: 6px; }
+QProgressBar::chunk { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #ffffff, stop:1 #c9c9c9); border-radius: 6px; }
 QToolTip { background: #1b1e24; color: #e6e7ec; border: 1px solid #3a3f49; padding: 4px 6px; }
 """
 
@@ -1299,7 +1378,7 @@ _HTML_DOC_TOP = r"""<!DOCTYPE html>
 <meta name="referrer" content="no-referrer" />
 <meta name="format-detection" content="telephone=no" />
 <title>__TITLE_HTML__</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230a0a0a'/%3E%3Cpath d='M18 44V20h10c6 0 9 3 9 8s-3 8-9 8h-4v8z' fill='%23d8b26a'/%3E%3C/svg%3E" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230a0a0a'/%3E%3Cpath d='M18 44V20h10c6 0 9 3 9 8s-3 8-9 8h-4v8z' fill='%23ffffff'/%3E%3C/svg%3E" />
 <style>
 """
 
@@ -1313,7 +1392,7 @@ _HTML_CSS = r"""
   --dim:#5c5c64;
   --line:rgba(245,245,245,.12);
   --line-soft:rgba(245,245,245,.07);
-  --gold:#d8b26a;
+  --accent:#ffffff;
   --ease:cubic-bezier(.16,1,.3,1);
   --ease-io:cubic-bezier(.62,.05,.28,1);
   --pad:clamp(22px,5vw,86px);
@@ -1340,21 +1419,26 @@ body.shielded{cursor:auto;}
 body.shielded .cursor-dot,body.shielded .cursor-ring{opacity:0;}
 canvas,img{-webkit-user-drag:none;user-drag:none;pointer-events:none;}
 input,textarea{-webkit-user-select:text;-moz-user-select:text;user-select:text;cursor:text;}
+/* 允许复制模式：恢复文本选择、系统光标，并隐藏自定义光标 */
+body.mode-allow{-webkit-user-select:text;-moz-user-select:text;-ms-user-select:text;user-select:text;cursor:auto;}
+body.mode-allow input,body.mode-allow textarea{cursor:text;}
+body.mode-allow button,body.mode-allow a{cursor:pointer;}
+body.mode-allow .cursor-dot,body.mode-allow .cursor-ring{display:none;}
 a{color:inherit;text-decoration:none;}
 button{font:inherit;color:inherit;background:none;border:none;cursor:none;}
-::selection{background:rgba(216,178,106,.28);}
+::selection{background:rgba(255,255,255,.28);}
 [hidden]{display:none !important;}
 
 /* 极简自定义跟随光标 */
 .cursor-dot,.cursor-ring{position:fixed;top:0;left:0;z-index:12000;pointer-events:none;border-radius:50%;}
-.cursor-dot{width:6px;height:6px;background:var(--gold);margin:-3px 0 0 -3px;transition:opacity .3s linear;}
+.cursor-dot{width:6px;height:6px;background:var(--accent);margin:-3px 0 0 -3px;transition:opacity .3s linear;}
 .cursor-ring{
   width:38px;height:38px;margin:-19px 0 0 -19px;
-  border:1px solid rgba(216,178,106,.55);
+  border:1px solid rgba(255,255,255,.55);
   transition:width .35s var(--ease),height .35s var(--ease),margin .35s var(--ease),background .35s var(--ease),opacity .3s linear;
 }
-.cursor-ring.is-hover{width:74px;height:74px;margin:-37px 0 0 -37px;background:rgba(216,178,106,.08);border-color:rgba(216,178,106,.8);}
-.cursor-ring.is-press{width:24px;height:24px;margin:-12px 0 0 -12px;background:rgba(216,178,106,.22);}
+.cursor-ring.is-hover{width:74px;height:74px;margin:-37px 0 0 -37px;background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.8);}
+.cursor-ring.is-press{width:24px;height:24px;margin:-12px 0 0 -12px;background:rgba(255,255,255,.22);}
 @media (hover:none),(pointer:coarse){
   body,button{cursor:auto;}
   .cursor-dot,.cursor-ring{display:none;}
@@ -1363,9 +1447,32 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:none;}
 /* 顶部滚动进度 */
 .progress{
   position:fixed;top:0;left:0;height:2px;width:0;z-index:9500;
-  background:linear-gradient(90deg,rgba(216,178,106,.1),var(--gold));
+  background:linear-gradient(90deg,rgba(255,255,255,.1),var(--accent));
   transition:width .12s linear;
 }
+
+/* ===================== 长图 / 完整大图查看层 ===================== */
+.zoom{
+  position:fixed;inset:0;z-index:9600;
+  background:rgba(6,6,8,.97);
+  overflow-y:auto;overflow-x:hidden;
+  padding:70px 18px 54px;
+  opacity:0;visibility:hidden;pointer-events:none;
+  transition:opacity .35s var(--ease),visibility .35s var(--ease);
+}
+.zoom.show{opacity:1;visibility:visible;pointer-events:auto;}
+.zoom-stage{display:flex;justify-content:center;align-items:flex-start;}
+.zoom-canvas{display:block;border:1px solid rgba(255,255,255,.16);box-shadow:0 40px 120px rgba(0,0,0,.65);}
+.zoom-close{
+  position:fixed;top:20px;right:24px;z-index:9601;
+  width:44px;height:44px;border-radius:50%;
+  border:1px solid rgba(255,255,255,.3);color:#fff;
+  background:rgba(12,12,14,.7);font-size:18px;line-height:1;
+  transition:transform .35s var(--ease),border-color .35s var(--ease);
+}
+.zoom-close:hover{transform:rotate(90deg);border-color:#fff;}
+.zoom-tip{position:fixed;left:24px;bottom:20px;z-index:9601;font-size:11px;letter-spacing:.18em;color:var(--dim);}
+body.zoom-open{overflow:hidden;}
 
 /* ===================== 解锁层 ===================== */
 .gate{
@@ -1373,7 +1480,7 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:none;}
   display:flex;align-items:center;justify-content:center;
   padding:24px;
   background:
-    radial-gradient(1100px 620px at 50% 18%,rgba(216,178,106,.10),transparent 62%),
+    radial-gradient(1100px 620px at 50% 18%,rgba(255,255,255,.10),transparent 62%),
     radial-gradient(900px 700px at 80% 100%,rgba(90,120,255,.06),transparent 70%),
     #070708;
   transition:opacity .9s var(--ease),visibility .9s var(--ease);
@@ -1399,12 +1506,12 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:none;}
 .gate-lock{
   width:52px;height:52px;margin:0 auto 22px;border-radius:50%;
   display:flex;align-items:center;justify-content:center;
-  border:1px solid rgba(216,178,106,.45);color:var(--gold);
-  background:radial-gradient(circle at 50% 30%,rgba(216,178,106,.16),transparent 70%);
+  border:1px solid rgba(255,255,255,.45);color:var(--accent);
+  background:radial-gradient(circle at 50% 30%,rgba(255,255,255,.16),transparent 70%);
 }
 .gate-title{margin:0;font-size:clamp(22px,3vw,30px);font-weight:600;letter-spacing:.16em;text-transform:uppercase;}
 .gate-sub{margin-top:10px;color:var(--muted);font-size:13px;letter-spacing:.22em;text-transform:uppercase;}
-.gate-divider{height:1px;margin:26px auto;width:64px;background:linear-gradient(90deg,transparent,var(--gold),transparent);}
+.gate-divider{height:1px;margin:26px auto;width:64px;background:linear-gradient(90deg,transparent,var(--accent),transparent);}
 .gate-note{margin:0 0 22px;color:var(--muted);font-size:13.5px;}
 .gate-form{display:flex;gap:10px;align-items:stretch;}
 .gate-form input{
@@ -1413,10 +1520,10 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:none;}
   outline:none;transition:border-color .3s var(--ease),background .3s var(--ease);
 }
 .gate-form input::placeholder{color:#6a6a72;letter-spacing:.14em;font-size:13px;}
-.gate-form input:focus{border-color:var(--gold);background:rgba(216,178,106,.05);}
+.gate-form input:focus{border-color:var(--accent);background:rgba(255,255,255,.05);}
 .gate-form button{
   padding:0 26px;border-radius:10px;font-size:14px;letter-spacing:.24em;
-  background:linear-gradient(135deg,#e8c47e,#c39a4f);color:#141416;font-weight:700;
+  background:linear-gradient(135deg,#ffffff,#cfcfcf);color:#141416;font-weight:700;
   transition:transform .35s var(--ease),filter .35s var(--ease);
 }
 .gate-form button:hover{filter:brightness(1.08);transform:translateY(-1px);}
@@ -1460,7 +1567,7 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:none;}
 }
 .scroll-cue i{display:block;width:36px;height:1px;background:var(--line);position:relative;overflow:hidden;}
 .scroll-cue i::after{
-  content:"";position:absolute;inset:0;background:var(--gold);
+  content:"";position:absolute;inset:0;background:var(--accent);
   animation:cue 2.4s var(--ease-io) infinite;
 }
 @keyframes cue{0%{transform:translateX(-100%);}60%{transform:translateX(100%);}100%{transform:translateX(100%);}}
@@ -1487,7 +1594,7 @@ body.drawer-open .drawer-mask{opacity:1;visibility:visible;}
 }
 body.drawer-open .drawer{transform:translateX(0);}
 .drawer-top{position:relative;padding-bottom:22px;border-bottom:1px solid var(--line-soft);}
-.drawer-eyebrow{font-size:10.5px;letter-spacing:.4em;text-transform:uppercase;color:var(--gold);}
+.drawer-eyebrow{font-size:10.5px;letter-spacing:.4em;text-transform:uppercase;color:var(--accent);}
 .drawer-title{margin-top:10px;font-size:26px;font-weight:600;letter-spacing:.06em;}
 .drawer-close{
   position:absolute;top:0;right:0;width:38px;height:38px;border-radius:50%;
@@ -1495,7 +1602,7 @@ body.drawer-open .drawer{transform:translateX(0);}
   display:flex;align-items:center;justify-content:center;
   transition:border-color .4s var(--ease),color .4s var(--ease),transform .5s var(--ease);
 }
-.drawer-close:hover{border-color:var(--gold);color:var(--gold);transform:rotate(90deg);}
+.drawer-close:hover{border-color:var(--accent);color:var(--accent);transform:rotate(90deg);}
 .drawer-list{flex:1;overflow-y:auto;padding:22px 0;margin:0;display:flex;flex-direction:column;gap:2px;}
 .drawer-item{
   display:flex;align-items:baseline;gap:16px;width:100%;text-align:left;
@@ -1505,9 +1612,9 @@ body.drawer-open .drawer{transform:translateX(0);}
   opacity:0;transform:translateX(-18px);
 }
 body.drawer-open .drawer-item{opacity:1;transform:none;transition:opacity .7s var(--ease),transform .7s var(--ease),background .45s var(--ease),padding-left .45s var(--ease);}
-.drawer-item:hover{background:rgba(216,178,106,.07);padding-left:20px;}
-.drawer-item.active{color:var(--gold);}
-.drawer-item.active .di-num{color:var(--gold);}
+.drawer-item:hover{background:rgba(255,255,255,.07);padding-left:20px;}
+.drawer-item.active{color:var(--accent);}
+.drawer-item.active .di-num{color:var(--accent);}
 .di-num{font-size:11px;letter-spacing:.24em;color:var(--dim);min-width:30px;}
 .di-name{font-size:16.5px;letter-spacing:.02em;}
 .drawer-home .di-name{color:var(--muted);}
@@ -1522,13 +1629,13 @@ body.drawer-open .drawer-item{opacity:1;transform:none;transition:opacity .7s va
   min-height:100vh;display:flex;flex-direction:column;justify-content:center;
   padding:120px var(--pad) 90px;
 }
-.hero-eyebrow{font-size:11px;letter-spacing:.46em;text-transform:uppercase;color:var(--gold);}
+.hero-eyebrow{font-size:11px;letter-spacing:.46em;text-transform:uppercase;color:var(--accent);}
 .hero-title{
   margin:26px 0 0;font-size:clamp(42px,8vw,120px);line-height:.98;font-weight:600;
   letter-spacing:-.015em;text-transform:uppercase;
 }
 .hero-sub{margin:26px 0 0;max-width:640px;color:var(--muted);font-size:clamp(14px,1.3vw,17px);letter-spacing:.06em;}
-.hero-line{margin:44px 0 0;width:min(560px,70vw);height:1px;background:linear-gradient(90deg,var(--gold),transparent);}
+.hero-line{margin:44px 0 0;width:min(560px,70vw);height:1px;background:linear-gradient(90deg,var(--accent),transparent);}
 .hero-meta{margin-top:24px;display:flex;gap:34px;flex-wrap:wrap;color:var(--dim);font-size:11.5px;letter-spacing:.3em;text-transform:uppercase;}
 .hero > *{animation:heroUp 1.3s var(--ease) both;}
 .hero > *:nth-child(2){animation-delay:.1s;}
@@ -1561,16 +1668,25 @@ body.drawer-open .drawer-item{opacity:1;transform:none;transition:opacity .7s va
   display:flex;align-items:flex-end;justify-content:flex-start;gap:8px;
   padding:22px 24px;
 }
+.media-zoom{
+  position:absolute;right:16px;bottom:14px;
+  font-size:11px;letter-spacing:.16em;color:rgba(245,245,245,.78);
+  border:1px solid rgba(255,255,255,.26);background:rgba(8,8,10,.55);
+  padding:6px 11px;border-radius:2px;
+  opacity:0;transform:translateY(6px);
+  transition:opacity .4s var(--ease),transform .4s var(--ease);
+}
+.media-shield:hover .media-zoom{opacity:1;transform:none;}
 .media-badge,.media-badge-arrow{
   font-size:11px;letter-spacing:.28em;text-transform:uppercase;
-  color:#141416;background:var(--gold);padding:9px 16px;border-radius:2px;
+  color:#141416;background:var(--accent);padding:9px 16px;border-radius:2px;
   opacity:0;transform:translateY(12px);
   transition:opacity .5s var(--ease),transform .6s var(--ease);
 }
 .media-badge-arrow{padding:9px 13px;}
 .work-media:hover .media-badge,.work-media:hover .media-badge-arrow{opacity:1;transform:none;}
 .work-info{padding-top:6px;}
-.work-index{font-size:11px;letter-spacing:.42em;color:var(--gold);}
+.work-index{font-size:11px;letter-spacing:.42em;color:var(--accent);}
 .work-title{
   margin:16px 0 0;font-size:clamp(28px,3.6vw,54px);line-height:1.04;font-weight:600;letter-spacing:-.01em;
 }
@@ -1581,7 +1697,7 @@ body.drawer-open .drawer-item{opacity:1;transform:none;transition:opacity .7s va
   font-size:12px;letter-spacing:.3em;text-transform:uppercase;color:var(--fg);
 }
 .work-cta i{display:block;width:44px;height:1px;background:var(--line);position:relative;transition:width .5s var(--ease),background .5s var(--ease);}
-.work-cta:hover i{width:76px;background:var(--gold);}
+.work-cta:hover i{width:76px;background:var(--accent);}
 .reveal{opacity:0;transform:translateY(38px);transition:opacity 1.1s var(--ease),transform 1.1s var(--ease);}
 .reveal.in{opacity:1;transform:none;}
 
@@ -1602,13 +1718,13 @@ body.drawer-open .drawer-item{opacity:1;transform:none;transition:opacity .7s va
   border:1px solid var(--line);border-radius:999px;padding:11px 20px;
   transition:color .4s var(--ease),border-color .4s var(--ease),gap .4s var(--ease);
 }
-.back-btn:hover{color:var(--gold);border-color:rgba(216,178,106,.55);gap:18px;}
+.back-btn:hover{color:var(--accent);border-color:rgba(255,255,255,.55);gap:18px;}
 .back-arrow{display:inline-block;transition:transform .5s var(--ease);}
 .back-btn:hover .back-arrow{transform:translateX(-4px);}
 .detail-head{padding:56px var(--pad) 26px;max-width:1180px;}
 .detail-eyebrow{display:flex;align-items:center;gap:12px;font-size:11px;letter-spacing:.38em;text-transform:uppercase;color:var(--muted);}
-.detail-eyebrow .dot{width:6px;height:6px;border-radius:50%;background:var(--gold);}
-.detail-eyebrow b{color:var(--gold);font-weight:600;}
+.detail-eyebrow .dot{width:6px;height:6px;border-radius:50%;background:var(--accent);}
+.detail-eyebrow b{color:var(--accent);font-weight:600;}
 .detail-eyebrow .slash{color:var(--dim);}
 .detail-title{margin:22px 0 0;font-size:clamp(32px,6vw,86px);line-height:1.02;font-weight:600;letter-spacing:-.015em;}
 .detail-meta{margin-top:18px;color:var(--dim);font-size:11.5px;letter-spacing:.3em;text-transform:uppercase;}
@@ -1641,8 +1757,8 @@ body.drawer-open .drawer-item{opacity:1;transform:none;transition:opacity .7s va
   font-size:clamp(22px,3.2vw,44px);font-weight:600;letter-spacing:-.01em;
   transition:color .45s var(--ease),gap .45s var(--ease);
 }
-.next-btn:hover{color:var(--gold);gap:34px;}
-.next-arrow{display:inline-block;font-size:.75em;color:var(--gold);}
+.next-btn:hover{color:var(--accent);gap:34px;}
+.next-arrow{display:inline-block;font-size:.75em;color:var(--accent);}
 .back-btn.ghost{border-color:transparent;padding-left:0;}
 
 /* ===================== 防截屏遮罩 ===================== */
@@ -1660,14 +1776,14 @@ body.shielded .app{
 .shield-card{
   width:min(540px,92vw);text-align:center;padding:44px 38px 34px;
   background:rgba(18,18,20,.9);
-  border:1px solid rgba(216,178,106,.3);border-radius:18px;
+  border:1px solid rgba(255,255,255,.3);border-radius:18px;
   box-shadow:0 40px 120px rgba(0,0,0,.7);
 }
 .shield-eye{
   width:46px;height:46px;margin:0 auto 20px;border-radius:50%;
-  display:flex;align-items:center;justify-content:center;color:var(--gold);
-  border:1px solid rgba(216,178,106,.4);
-  background:radial-gradient(circle at 50% 30%,rgba(216,178,106,.18),transparent 70%);
+  display:flex;align-items:center;justify-content:center;color:var(--accent);
+  border:1px solid rgba(255,255,255,.4);
+  background:radial-gradient(circle at 50% 30%,rgba(255,255,255,.18),transparent 70%);
   animation:pulse 2.6s var(--ease-io) infinite;
 }
 @keyframes pulse{0%,100%{transform:scale(1);opacity:1;}50%{transform:scale(1.07);opacity:.75;}}
@@ -1675,7 +1791,7 @@ body.shielded .app{
 .shield-card p{margin:0 0 26px;color:var(--muted);font-size:13.5px;line-height:1.9;}
 .shield-card button{
   padding:14px 30px;border-radius:10px;font-size:13px;letter-spacing:.24em;
-  background:linear-gradient(135deg,#e8c47e,#c39a4f);color:#141416;font-weight:700;
+  background:linear-gradient(135deg,#ffffff,#cfcfcf);color:#141416;font-weight:700;
   transition:transform .35s var(--ease),filter .35s var(--ease);
 }
 .shield-card button:hover{filter:brightness(1.08);transform:translateY(-1px);}
@@ -1843,6 +1959,13 @@ _HTML_BODY = r"""<body class="locked">
   </div>
 </div>
 
+<!-- ================= 长图 / 完整大图查看层 ================= -->
+<div class="zoom" id="zoomLayer" aria-hidden="true">
+  <button class="zoom-close" id="zoomClose" type="button" aria-label="关闭">✕</button>
+  <div class="zoom-stage" id="zoomStage"></div>
+  <div class="zoom-tip">ESC 关闭 · 滚动查看完整长图</div>
+</div>
+
 <noscript><div class="noscript">本作品集需要启用 JavaScript 才能浏览。</div></noscript>
 
 <script>
@@ -1988,6 +2111,11 @@ _HTML_JS = r"""
      ========================================================= */
   var VAULT = window.PB_VAULT || { title: 'PORTFOLIO', hash: '', payload: '', count: 0, generated: '' };
 
+  /* 页面权限：strict = 禁止复制 + 截屏高斯模糊；nocopy = 仅禁止复制；allow = 允许复制 */
+  var MODE = VAULT.mode || 'strict';
+  var BLUR_ON = MODE === 'strict';
+  var COPY_BLOCK = MODE !== 'allow';
+
   var state = {
     unlocked: false,
     projects: [],
@@ -2109,7 +2237,7 @@ _HTML_JS = r"""
 
       var canvas = document.createElement('canvas');
       canvas.className = 'media-canvas';
-      canvas.setAttribute('data-mode', 'cover');
+      canvas.setAttribute('data-mode', 'auto');
       canvas.__src = project.cover || null;
 
       var shield = document.createElement('div');
@@ -2265,7 +2393,8 @@ _HTML_JS = r"""
       canvas.setAttribute('data-state', 'loaded');
       if (canvas.getAttribute('data-auto-ratio') === '1') {
         var ratio = img.naturalWidth / Math.max(1, img.naturalHeight);
-        ratio = Math.max(0.62, Math.min(2.4, ratio));
+        /* 长图不再被 0.62 截断：允许到 1:3.3，超出部分交给 contain 完整显示 */
+        ratio = Math.max(0.30, Math.min(3.2, ratio));
         var inner = canvas.parentNode;
         if (inner) { inner.style.aspectRatio = ratio.toFixed(4); }
       }
@@ -2307,20 +2436,42 @@ _HTML_JS = r"""
     var iw = img.naturalWidth || img.width;
     var ih = img.naturalHeight || img.height;
     if (!iw || !ih) { return; }
-    var mode = canvas.getAttribute('data-mode') || 'cover';
-    var scale, drawW, drawH;
-    if (mode === 'contain') {
-      scale = Math.min(canvas.width / iw, canvas.height / ih);
-      drawW = iw * scale;
-      drawH = ih * scale;
-    } else {
-      scale = Math.max(canvas.width / iw, canvas.height / ih);
-      drawW = iw * scale;
-      drawH = ih * scale;
-    }
+    var boxW = canvas.width;
+    var boxH = canvas.height;
+    var force = canvas.getAttribute('data-mode') || 'auto';
+    var imgRatio = iw / ih;
+    var boxRatio = boxW / Math.max(1, boxH);
+    var deviation = Math.max(imgRatio / boxRatio, boxRatio / imgRatio);
+    /* auto：比例差异不大用 cover 满铺；异形比例（尤其长图）自动 contain，保证全图可见 */
+    var useContain = force === 'contain' ? true : (force === 'cover' ? false : deviation > 1.14);
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(img, (canvas.width - drawW) / 2, (canvas.height - drawH) / 2, drawW, drawH);
+    if (useContain) {
+      var backScale = Math.max(boxW / iw, boxH / ih);
+      var backW = iw * backScale;
+      var backH = ih * backScale;
+      var hasFilter = typeof ctx.filter === 'string';
+      if (hasFilter) { ctx.filter = 'blur(26px) brightness(0.45) saturate(0.85)'; }
+      ctx.drawImage(img, (boxW - backW) / 2, (boxH - backH) / 2, backW, backH);
+      if (hasFilter) { ctx.filter = 'none'; }
+      else {
+        ctx.fillStyle = 'rgba(6,6,7,.74)';
+        ctx.fillRect(0, 0, boxW, boxH);
+      }
+      var scale = Math.min(boxW / iw, boxH / ih);
+      var drawW = iw * scale;
+      var drawH = ih * scale;
+      ctx.drawImage(img, (boxW - drawW) / 2, (boxH - drawH) / 2, drawW, drawH);
+    } else {
+      var coverScale = Math.max(boxW / iw, boxH / ih);
+      var coverW = iw * coverScale;
+      var coverH = ih * coverScale;
+      ctx.drawImage(img, (boxW - coverW) / 2, (boxH - coverH) / 2, coverW, coverH);
+    }
+    if (box) {
+      if (useContain) { box.classList.add('is-contain'); }
+      else { box.classList.remove('is-contain'); }
+    }
   }
 
   function allCanvases() { return document.getElementsByTagName('canvas'); }
@@ -2365,6 +2516,11 @@ _HTML_JS = r"""
     for (var i = 0; i < nodes.length; i++) {
       var node = nodes[i];
       if (!node.isConnected) { continue; }
+      /* contain 模式（长图 / 异形图）禁用视差缩放，避免裁掉完整图像边缘 */
+      if (node.parentNode && node.parentNode.classList.contains('is-contain')) {
+        node.style.transform = '';
+        continue;
+      }
       parallaxItems.push({
         el: node,
         host: node.parentNode,
@@ -2511,12 +2667,20 @@ _HTML_JS = r"""
 
       var canvas = document.createElement('canvas');
       canvas.className = 'media-canvas';
-      canvas.setAttribute('data-mode', 'cover');
+      canvas.setAttribute('data-mode', 'auto');
       canvas.setAttribute('data-auto-ratio', '1');
       canvas.__src = image;
 
       var shield = document.createElement('div');
       shield.className = 'media-shield';
+
+      var zoomHint = document.createElement('span');
+      zoomHint.className = 'media-zoom';
+      zoomHint.textContent = '查看完整大图';
+      shield.appendChild(zoomHint);
+      shield.addEventListener('click', function () {
+        if (!state.shielding && canvas.__img) { openZoom(canvas.__img); }
+      });
 
       inner.appendChild(canvas);
       inner.appendChild(shield);
@@ -2549,6 +2713,7 @@ _HTML_JS = r"""
   function openProject(index) {
     if (!state.unlocked || state.switching || state.shielding) { return; }
     if (index < 0 || index >= state.projects.length) { return; }
+    closeZoom();
     closeDrawer();
     state.current = index;
     state.view = 'detail';
@@ -2584,6 +2749,7 @@ _HTML_JS = r"""
 
   function goGallery() {
     if (!state.unlocked || state.switching || state.shielding) { return; }
+    closeZoom();
     if (state.view === 'gallery') { closeDrawer(); return; }
     state.view = 'gallery';
     state.switching = true;
@@ -2675,7 +2841,9 @@ _HTML_JS = r"""
   }
 
   function shieldNow(reason) {
+    if (!BLUR_ON) { return; }
     if (!state.unlocked || state.shielding) { return; }
+    closeZoom();
     state.shielding = true;
     document.body.classList.add('shielded');
     els.shield.classList.add('show');
@@ -2740,34 +2908,37 @@ _HTML_JS = r"""
     var shift = event.shiftKey;
     var hit = null;
 
-    if (key === 'PrintScreen' || code === 'PrintScreen' || event.keyCode === 44) {
-      hit = '检测到 PrintScreen 截屏按键';
-    } else if (code === 'F12' || key === 'F12') {
-      hit = '检测到开发者工具（F12）';
-    } else if (event.metaKey && shift && (lower === 's' || code === 'KeyS')) {
-      hit = '检测到 Windows 截屏（Win + Shift + S）';
-    } else if (event.metaKey && shift && (lower === '3' || lower === '4' || lower === '5')) {
-      hit = '检测到 macOS 截屏快捷键（Cmd + Shift + 3 / 4 / 5）';
-    } else if (mod && shift && (lower === 'i' || lower === 'j' || lower === 'c' || lower === 'e')) {
-      hit = '检测到开发者工具 / 抓取快捷键';
-    } else if (mod && lower === 's') {
-      hit = '检测到保存网页（Ctrl / Cmd + S）';
-    } else if (mod && lower === 'p') {
-      hit = '检测到打印 / 导出 PDF（Ctrl / Cmd + P）';
-    } else if (mod && lower === 'u') {
-      hit = '检测到查看网页源代码';
-    } else if (event.ctrlKey && event.altKey && (lower === 'a' || lower === 'x' || lower === 'q')) {
-      hit = '检测到第三方截图软件热键';
-    } else if (key === 'F1' || code === 'F1') {
-      hit = '检测到截图软件热键（F1）';
-    } else if (key === 'Meta' || key === 'OS' || key === 'Win') {
-      if (phase === 'down' && !event.repeat) { armModifier(); }
-      if (phase === 'up') { cancelModifier(); }
-      return;
-    } else if (key === 'Alt') {
-      if (phase === 'down' && !event.repeat) { armModifier(); }
-      if (phase === 'up') { cancelModifier(); }
-      return;
+    /* 截屏 / 开发者工具检测只在「严格」模式生效 */
+    if (BLUR_ON) {
+      if (key === 'PrintScreen' || code === 'PrintScreen' || event.keyCode === 44) {
+        hit = '检测到 PrintScreen 截屏按键';
+      } else if (code === 'F12' || key === 'F12') {
+        hit = '检测到开发者工具（F12）';
+      } else if (event.metaKey && shift && (lower === 's' || code === 'KeyS')) {
+        hit = '检测到 Windows 截屏（Win + Shift + S）';
+      } else if (event.metaKey && shift && (lower === '3' || lower === '4' || lower === '5')) {
+        hit = '检测到 macOS 截屏快捷键（Cmd + Shift + 3 / 4 / 5）';
+      } else if (mod && shift && (lower === 'i' || lower === 'j' || lower === 'c' || lower === 'e')) {
+        hit = '检测到开发者工具 / 抓取快捷键';
+      } else if (mod && lower === 's') {
+        hit = '检测到保存网页（Ctrl / Cmd + S）';
+      } else if (mod && lower === 'p') {
+        hit = '检测到打印 / 导出 PDF（Ctrl / Cmd + P）';
+      } else if (mod && lower === 'u') {
+        hit = '检测到查看网页源代码';
+      } else if (event.ctrlKey && event.altKey && (lower === 'a' || lower === 'x' || lower === 'q')) {
+        hit = '检测到第三方截图软件热键';
+      } else if (key === 'F1' || code === 'F1') {
+        hit = '检测到截图软件热键（F1）';
+      } else if (key === 'Meta' || key === 'OS' || key === 'Win') {
+        if (phase === 'down' && !event.repeat) { armModifier(); }
+        if (phase === 'up') { cancelModifier(); }
+        return;
+      } else if (key === 'Alt') {
+        if (phase === 'down' && !event.repeat) { armModifier(); }
+        if (phase === 'up') { cancelModifier(); }
+        return;
+      }
     }
 
     if (hit) {
@@ -2779,18 +2950,106 @@ _HTML_JS = r"""
 
     if (phase !== 'down') { return; }
     if (key === 'Escape') {
-      if (document.body.classList.contains('drawer-open')) { closeDrawer(); }
+      if (zoomState.open) { closeZoom(); }
+      else if (document.body.classList.contains('drawer-open')) { closeDrawer(); }
       else if (state.view === 'detail') { goGallery(); }
       return;
     }
     if (isTypingTarget(event.target)) { return; }
-    if (event.ctrlKey && !event.shiftKey && (lower === 'a' || lower === 'c')) {
+    if (COPY_BLOCK && event.ctrlKey && !event.shiftKey && (lower === 'a' || lower === 'c')) {
       event.preventDefault();
     }
   }
 
+  /* =========================================================
+     8.5 长图 / 完整大图查看层（详情页点击图片放大，可滚动看完整长图）
+     ========================================================= */
+  var zoomState = { layer: null, stage: null, open: false };
+
+  function setupZoom() {
+    zoomState.layer = document.getElementById('zoomLayer');
+    zoomState.stage = document.getElementById('zoomStage');
+    var closeBtn = document.getElementById('zoomClose');
+    if (!zoomState.layer || !zoomState.stage) { return; }
+    if (closeBtn) { closeBtn.addEventListener('click', closeZoom); }
+    zoomState.layer.addEventListener('click', function (event) {
+      if (event.target === zoomState.layer) { closeZoom(); }
+    });
+  }
+
+  function openZoom(img) {
+    if (!img || !zoomState.layer || state.shielding) { return; }
+    var iw = img.naturalWidth || img.width;
+    var ih = img.naturalHeight || img.height;
+    if (!iw || !ih) { return; }
+    var cssW = Math.min(window.innerWidth * 0.92, 1240, iw);
+    var cssH = cssW * ih / iw;
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    var maxPixels = 12 * 1000 * 1000;   /* 超长图的像素预算，避免爆内存 */
+    var w = Math.max(2, Math.round(cssW * dpr));
+    var h = Math.max(2, Math.round(cssH * dpr));
+    if (w * h > maxPixels) {
+      var k = Math.sqrt(maxPixels / (w * h));
+      w = Math.max(2, Math.round(w * k));
+      h = Math.max(2, Math.round(h * k));
+    }
+    var canvas = document.createElement('canvas');
+    canvas.className = 'zoom-canvas';
+    canvas.width = w;
+    canvas.height = h;
+    canvas.style.width = Math.round(cssW) + 'px';
+    var ctx = canvas.getContext('2d');
+    if (!ctx) { return; }
+    ctx.fillStyle = '#0a0a0a';
+    ctx.fillRect(0, 0, w, h);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(img, 0, 0, w, h);
+    zoomState.stage.innerHTML = '';
+    zoomState.stage.appendChild(canvas);
+    zoomState.layer.classList.add('show');
+    zoomState.layer.setAttribute('aria-hidden', 'false');
+    zoomState.layer.scrollTop = 0;
+    document.body.classList.add('zoom-open');
+    zoomState.open = true;
+  }
+
+  function closeZoom() {
+    if (!zoomState.layer || !zoomState.open) { return; }
+    zoomState.open = false;
+    zoomState.layer.classList.remove('show');
+    zoomState.layer.setAttribute('aria-hidden', 'true');
+    document.body.classList.remove('zoom-open');
+    zoomState.stage.innerHTML = '';
+  }
+
   function setupProtection() {
-    /* --- 截屏意图：窗口失焦 --- */
+    if (MODE === 'allow') { document.body.classList.add('mode-allow'); }
+
+    /* --- 键盘：Esc 等导航始终可用，防护逻辑在内部分模式处理 --- */
+    document.addEventListener('keydown', function (event) { handleKeyEvent(event, 'down'); }, true);
+    document.addEventListener('keyup', function (event) { handleKeyEvent(event, 'up'); }, true);
+
+    /* --- 复制 / 右键 / 拖拽：strict 与 nocopy 模式禁止 --- */
+    if (COPY_BLOCK) {
+      document.addEventListener('contextmenu', function (event) { event.preventDefault(); }, true);
+      document.addEventListener('dragstart', function (event) { event.preventDefault(); }, true);
+      document.addEventListener('drop', function (event) { event.preventDefault(); }, true);
+      document.addEventListener('selectstart', function (event) {
+        if (!isTypingTarget(event.target)) { event.preventDefault(); }
+      }, true);
+      document.addEventListener('copy', function (event) {
+        if (!isTypingTarget(event.target)) { event.preventDefault(); }
+      }, true);
+      document.addEventListener('cut', function (event) {
+        if (!isTypingTarget(event.target)) { event.preventDefault(); }
+      }, true);
+    }
+
+    /* --- 截屏模糊：仅 strict 模式 --- */
+    if (!BLUR_ON) { return; }
+
+    /* 截屏意图：窗口失焦 */
     window.addEventListener('blur', function () {
       shieldNow('检测到窗口失去焦点（可能正在使用截图工具）');
     });
@@ -2801,7 +3060,7 @@ _HTML_JS = r"""
       shieldNow('检测到页面隐藏');
     });
 
-    /* --- 截屏意图：鼠标离开视口 --- */
+    /* 截屏意图：鼠标离开视口 */
     document.addEventListener('mouseleave', function () {
       shieldNow('检测到鼠标离开页面视口');
     });
@@ -2811,11 +3070,7 @@ _HTML_JS = r"""
       }
     });
 
-    /* --- 截屏意图：快捷键 --- */
-    document.addEventListener('keydown', function (event) { handleKeyEvent(event, 'down'); }, true);
-    document.addEventListener('keyup', function (event) { handleKeyEvent(event, 'up'); }, true);
-
-    /* --- 打印 / 另存 --- */
+    /* 打印 / 另存 */
     window.addEventListener('beforeprint', function () {
       shieldNow('检测到打印 / 导出 PDF 行为');
     });
@@ -2825,28 +3080,14 @@ _HTML_JS = r"""
       }
     }, true);
 
-    /* --- 防盗图基础能力 --- */
-    document.addEventListener('contextmenu', function (event) { event.preventDefault(); }, true);
-    document.addEventListener('dragstart', function (event) { event.preventDefault(); }, true);
-    document.addEventListener('drop', function (event) { event.preventDefault(); }, true);
-    document.addEventListener('selectstart', function (event) {
-      if (!isTypingTarget(event.target)) { event.preventDefault(); }
-    }, true);
-    document.addEventListener('copy', function (event) {
-      if (!isTypingTarget(event.target)) { event.preventDefault(); }
-    }, true);
-    document.addEventListener('cut', function (event) {
-      if (!isTypingTarget(event.target)) { event.preventDefault(); }
-    }, true);
-
-    /* --- 兜底巡检：焦点丢失 --- */
+    /* 兜底巡检：焦点丢失 */
     window.setInterval(function () {
       if (!state.unlocked || state.shielding) { return; }
       if (document.visibilityState !== 'visible') { return; }
       if (!document.hasFocus()) { shieldNow('检测到窗口未激活'); }
     }, 500);
 
-    /* --- 恢复按钮 --- */
+    /* 恢复按钮 */
     els.shieldBtn.addEventListener('click', function () {
       try { window.focus(); } catch (err) { /* 忽略 */ }
       window.setTimeout(shieldLift, 40);
@@ -2861,6 +3102,7 @@ _HTML_JS = r"""
     setupGate();
     setupDrawer();
     setupProtection();
+    setupZoom();
     setupCursor();
 
     window.addEventListener('scroll', onScroll, { passive: true });
@@ -2918,7 +3160,7 @@ def make_app_icon(size: int = 512) -> "QPixmap":
     painter = QPainter(pixmap)
     painter.setRenderHint(QPainter.Antialiasing, True)
 
-    # 底板：近黑圆角方块 + 金色细描边
+    # 底板：近黑圆角方块 + 白色细描边
     radius = size * 0.225
     plate = QPainterPath()
     plate.addRoundedRect(QRectF(size * 0.02, size * 0.02, size * 0.96, size * 0.96), radius, radius)
@@ -2926,12 +3168,12 @@ def make_app_icon(size: int = 512) -> "QPixmap":
     plate_gradient.setColorAt(0.0, QColor("#1a1a1f"))
     plate_gradient.setColorAt(1.0, QColor("#08080a"))
     painter.fillPath(plate, QBrush(plate_gradient))
-    pen = QPen(QColor(216, 178, 106, 110))
+    pen = QPen(QColor(255, 255, 255, 110))
     pen.setWidthF(max(1.0, size * 0.008))
     painter.setPen(pen)
     painter.drawPath(plate)
 
-    # 金色 P 字标（与生成网页的 favicon 使用同一套路径，坐标系 64×64）
+    # 白色 P 字标（与生成网页的 favicon 使用同一套路径，坐标系 64×64）
     glyph = QPainterPath()
     glyph.moveTo(18.0, 44.0)
     glyph.lineTo(18.0, 20.0)
@@ -2947,8 +3189,8 @@ def make_app_icon(size: int = 512) -> "QPixmap":
     painter.scale(size / 52.0, size / 52.0)
     painter.translate(-27.5, -32.0)
     gold = QLinearGradient(18, 20, 37, 44)
-    gold.setColorAt(0.0, QColor("#f2dca6"))
-    gold.setColorAt(1.0, QColor("#c39a4f"))
+    gold.setColorAt(0.0, QColor("#ffffff"))
+    gold.setColorAt(1.0, QColor("#cfcfcf"))
     painter.fillPath(glyph, QBrush(gold))
     painter.restore()
     painter.end()
