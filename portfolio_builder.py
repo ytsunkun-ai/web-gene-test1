@@ -64,7 +64,7 @@ except ImportError:  # pragma: no cover
 
 
 APP_NAME = "Portfolio Builder · 作品集网页生成器"
-APP_VERSION = "1.2.1"
+APP_VERSION = "1.2.2"
 
 SUPPORTED_IMAGE_EXT = (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif")
 MIME_MAP = {
@@ -1656,6 +1656,8 @@ html.snap-gallery .site-foot{scroll-snap-align:end;}
   padding:0;border-top:1px solid var(--line-soft);
 }
 .work:first-child{border-top:none;}
+/* 一级切换：透明度目标值 + 0.9s 缓动，旧屏淡出、新屏淡入（切换更慢更明显） */
+.work{opacity:0;transition:opacity .9s cubic-bezier(.25,.1,.25,1);}
 .work-media{
   position:absolute;inset:0;width:100%;height:100%;overflow:hidden;background:var(--bg);
   border-radius:0;box-shadow:none;
@@ -2536,7 +2538,8 @@ _HTML_JS = r"""
     requestAnimationFrame(applyScroll);
   }
 
-  /* 一级项目切换：按面板可见比例淡入淡出（上一屏淡出、下一屏淡入） */
+  /* 一级项目切换：每屏按可见比例给出透明度目标值，CSS 用 0.9s 缓动追上 →
+     旧屏在滑出过程中明显变暗，新屏从暗到亮缓缓浮现 */
   function updateWorkFade(vh) {
     var works = document.querySelectorAll('.gallery .work');
     for (var i = 0; i < works.length; i++) {
@@ -2545,8 +2548,8 @@ _HTML_JS = r"""
       var h = rect.height || 1;
       var visible = Math.min(rect.bottom, vh) - Math.max(rect.top, 0);
       var ratio = Math.max(0, Math.min(1, visible / Math.min(h, vh)));
-      var o = ratio <= 0 ? 0 : Math.pow(ratio, 0.85);
-      el.style.opacity = o.toFixed(3);
+      var target = ratio <= 0 ? 0 : Math.pow(ratio, 1.2);
+      el.style.opacity = target.toFixed(3);
     }
   }
 
