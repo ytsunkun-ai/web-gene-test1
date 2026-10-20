@@ -64,7 +64,7 @@ except ImportError:  # pragma: no cover
 
 
 APP_NAME = "Portfolio Builder · 作品集网页生成器"
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.2.0"
 
 SUPPORTED_IMAGE_EXT = (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif")
 MIME_MAP = {
@@ -1645,21 +1645,33 @@ body.drawer-open .drawer-item{opacity:1;transform:none;transition:opacity .7s va
 @keyframes heroUp{from{opacity:0;transform:translateY(34px);}to{opacity:1;transform:none;}}
 
 .works{display:block;}
+/* 一级：整屏吸附 —— 每个项目一屏，滚动自动吸附 */
+html.snap-gallery{scroll-snap-type:y mandatory;}
+html.snap-gallery .hero,
+html.snap-gallery .work{scroll-snap-align:start;scroll-snap-stop:always;}
+html.snap-gallery .site-foot{scroll-snap-align:end;}
 .work{
   position:relative;display:block;width:100%;
-  min-height:0;padding:0;border-top:1px solid var(--line-soft);
+  height:100vh;height:100svh;min-height:100vh;min-height:100svh;
+  padding:0;border-top:1px solid var(--line-soft);
 }
 .work:first-child{border-top:none;}
 .work-media{
-  position:relative;width:100%;overflow:hidden;background:#0d0d0f;
+  position:absolute;inset:0;width:100%;height:100%;overflow:hidden;background:var(--bg);
   border-radius:0;box-shadow:none;
 }
 .parallax{will-change:auto;}
 /* 一级：全铺满横幅 —— 宽度 100%，高度严格按原图比例；极端比例限高后由 Canvas contain 完整显示 */
-.work .media-inner{width:100%;aspect-ratio:16/9;max-height:100vh;}
+.work .media-inner{width:100%;height:100%;max-height:none;aspect-ratio:auto;}
+.work .parallax{width:100%;height:100%;}
 .media-inner{position:relative;width:100%;aspect-ratio:16/9;overflow:hidden;}
 .media-canvas{position:absolute;inset:0;width:100%;height:100%;display:block;opacity:0;transition:opacity .9s var(--ease);}
 .media-canvas.ready{opacity:1;}
+/* 全屏封面：画布四边渐隐，柔顺融入深色背景 */
+.work .media-canvas{
+  -webkit-mask-image:radial-gradient(ellipse 92% 90% at 50% 50%,#000 52%,rgba(0,0,0,.72) 76%,transparent 100%);
+  mask-image:radial-gradient(ellipse 92% 90% at 50% 50%,#000 52%,rgba(0,0,0,.72) 76%,transparent 100%);
+}
 .media-shield{
   position:absolute;inset:0;z-index:3;background:transparent;
   display:flex;align-items:flex-end;justify-content:flex-start;gap:8px;
@@ -2200,6 +2212,7 @@ _HTML_JS = r"""
     }
     state.projects = (data && data.projects) || [];
     state.unlocked = true;
+    document.documentElement.classList.add('snap-gallery');
     buildApp();
     setTimeout(function () {
       els.gate.classList.add('hidden');
@@ -2239,7 +2252,7 @@ _HTML_JS = r"""
 
       var canvas = document.createElement('canvas');
       canvas.className = 'media-canvas';
-      canvas.setAttribute('data-mode', 'auto');
+      canvas.setAttribute('data-mode', 'contain');
       canvas.setAttribute('data-auto-ratio', 'work');
       canvas.__src = project.cover || null;
 
@@ -2387,16 +2400,11 @@ _HTML_JS = r"""
       canvas.__img = img;
       canvas.setAttribute('data-state', 'loaded');
       var autoRatio = canvas.getAttribute('data-auto-ratio');
-      if (autoRatio === '1' || autoRatio === 'work') {
+      if (autoRatio === '1') {
+        /* 二级固定宽度：严格按原图比例，绝不裁剪（长图就让页面变长） */
         var ratio = img.naturalWidth / Math.max(1, img.naturalHeight);
         var inner = canvas.parentNode;
-        if (autoRatio === 'work') {
-          /* 一级全铺满：高度跟原图比例；极端比例限制在 0.55–2.6，超出交给 contain 完整显示 */
-          if (inner) { inner.style.aspectRatio = Math.max(0.55, Math.min(2.6, ratio)).toFixed(4); }
-        } else if (inner) {
-          /* 二级固定宽度：严格按原图比例，绝不裁剪（长图就让页面变长） */
-          inner.style.aspectRatio = ratio.toFixed(4);
-        }
+        if (inner) { inner.style.aspectRatio = ratio.toFixed(4); }
       }
       drawCanvas(canvas);
       canvas.classList.add('ready');
@@ -2703,6 +2711,7 @@ _HTML_JS = r"""
   function openProject(index) {
     if (!state.unlocked || state.switching || state.shielding) { return; }
     if (index < 0 || index >= state.projects.length) { return; }
+    document.documentElement.classList.remove('snap-gallery');
     closeZoom();
     closeDrawer();
     state.current = index;
@@ -2739,6 +2748,7 @@ _HTML_JS = r"""
 
   function goGallery() {
     if (!state.unlocked || state.switching || state.shielding) { return; }
+    document.documentElement.classList.add('snap-gallery');
     closeZoom();
     if (state.view === 'gallery') { closeDrawer(); return; }
     state.view = 'gallery';
