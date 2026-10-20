@@ -64,7 +64,7 @@ except ImportError:  # pragma: no cover
 
 
 APP_NAME = "Portfolio Builder · 作品集网页生成器"
-APP_VERSION = "1.2.0"
+APP_VERSION = "1.2.1"
 
 SUPPORTED_IMAGE_EXT = (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif")
 MIME_MAP = {
@@ -2231,13 +2231,14 @@ _HTML_JS = r"""
     buildDetailShell();
     collectParallax();
     sweepDraw();
+    updateWorkFade(window.innerHeight || document.documentElement.clientHeight);
   }
 
   function buildGallery() {
     els.worksList.innerHTML = '';
     state.projects.forEach(function (project, index) {
       var article = document.createElement('article');
-      article.className = 'work reveal';
+      article.className = 'work';
       article.style.transitionDelay = (Math.min(index, 3) * 0.07) + 's';
 
       var media = document.createElement('div');
@@ -2314,7 +2315,6 @@ _HTML_JS = r"""
       cta.addEventListener('click', open);
 
       if (lazyObserver) { lazyObserver.observe(canvas); }
-      if (revealObserver) { revealObserver.observe(article); }
     });
   }
 
@@ -2536,6 +2536,20 @@ _HTML_JS = r"""
     requestAnimationFrame(applyScroll);
   }
 
+  /* 一级项目切换：按面板可见比例淡入淡出（上一屏淡出、下一屏淡入） */
+  function updateWorkFade(vh) {
+    var works = document.querySelectorAll('.gallery .work');
+    for (var i = 0; i < works.length; i++) {
+      var el = works[i];
+      var rect = el.getBoundingClientRect();
+      var h = rect.height || 1;
+      var visible = Math.min(rect.bottom, vh) - Math.max(rect.top, 0);
+      var ratio = Math.max(0, Math.min(1, visible / Math.min(h, vh)));
+      var o = ratio <= 0 ? 0 : Math.pow(ratio, 0.85);
+      el.style.opacity = o.toFixed(3);
+    }
+  }
+
   function applyScroll() {
     scrollPending = false;
     if (parallaxDirty) { parallaxDirty = false; collectParallax(); }
@@ -2548,6 +2562,7 @@ _HTML_JS = r"""
       if ((window.pageYOffset || doc.scrollTop) > 40) { els.app.classList.add('scrolled'); }
       else { els.app.classList.remove('scrolled'); }
     }
+    updateWorkFade(vh);
     if (state.shielding) { return; }
     for (var i = 0; i < parallaxItems.length; i++) {
       var item = parallaxItems[i];
